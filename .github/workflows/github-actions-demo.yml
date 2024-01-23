@@ -1,0 +1,47 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v0.2.0
+
+    - name: Authenticate with Google Cloud
+      uses: google-github-actions/auth@v0.4.0
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Build and push Docker image
+      run: |
+        gcloud builds submit --tag gcr.io/innoplat/helloworld .
+
+    - name: Deploy to Google Cloud Run
+      run: |
+        gcloud run deploy helloworld --image gcr.io/innoplat/helloworld --region europe-west2 --platform managed
+
+    - name: Set Public Access to Cloud Run Service
+      run: |
+        gcloud run services add-iam-policy-binding helloworld \
+          --member="allUsers" \
+          --role="roles/run.invoker" \
+          --platform managed \
+          --region europe-west2
+
+    - name: Get Service URL
+      id: get_url
+      run: |
+        SERVICE_URL=$(gcloud run services describe helloworld --platform managed --region europe-west2 --format "value(status.url)")
+        echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+    - name: Send Webhook Notification
+      run: |
+        curl -X POST -H "Content-Type: application/json" -d '{"service_url": "${{ env.SERVICE_URL }}"}' https://www.mwhb.xyz/webhook-test/deployListener?repo=helloworld
